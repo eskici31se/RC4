@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mining Facility Pro - Unique Bonus System</title>
+    <style>
+        :root { --bg: #0b0b1a; --card: #16162d; --accent: #00f2ff; --danger: #ff4d4d; --text: #e0e0e0; --edit: #f59e0b; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding-top: 75px; }
+
+        .header-stats { 
+            position: fixed; top: 0; left: 0; right: 0; height: 65px;
+            background: rgba(11, 11, 26, 0.95); display: flex; justify-content: space-around; 
+            align-items: center; z-index: 1000; border-bottom: 2px solid var(--accent);
+            backdrop-filter: blur(8px);
+        }
+        .stat-box { text-align: center; }
+        .stat-label { font-size: 9px; color: #888; text-transform: uppercase; }
+        .stat-val { font-size: 11px; font-weight: bold; color: var(--accent); display: block; }
+
+        .container { padding: 15px; max-width: 500px; margin: auto; }
+        .panel { background: var(--card); padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #2d2d4d; }
+        h3 { margin-top: 0; font-size: 15px; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
+        
+        input, select { width: 100%; padding: 10px; margin: 5px 0; border-radius: 6px; border: 1px solid #333; background: #050510; color: white; box-sizing: border-box; font-size: 14px; }
+        .btn { width: 100%; padding: 12px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; margin-top: 8px; }
+        .btn-add { background: var(--accent); color: #000; }
+        .btn-toggle { background: #2d2d4d; color: var(--accent); font-size: 11px; padding: 5px 10px; width: auto; margin: 0; }
+
+        #invWrapper { display: none; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px; }
+        .inv-container { max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+        .inv-card { background: #1e1e3e; padding: 8px; border-radius: 8px; border: 1px solid #444; display: flex; justify-content: space-between; align-items: center; }
+        .inv-info { font-size: 11px; }
+        .inv-controls { display: flex; gap: 8px; }
+
+        .shelf { background: #1a1a35; border-radius: 10px; padding: 12px; margin-bottom: 20px; border: 1px solid #333; }
+        .floor { height: 35px; background: #08081a; margin: 4px 0; border-radius: 4px; display: flex; gap: 3px; padding: 2px; }
+        .slot { flex: 1; background: #2a2a4d; border-radius: 3px; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; font-size: 10px; border: 1px solid #3d3d5d; overflow: hidden; }
+        .slot.double { flex: 2; border-color: var(--accent); }
+        .btn-remove { color: var(--danger); font-weight: bold; background: none; border: none; cursor: pointer; font-size: 16px; }
+        .edit-badge { background: var(--edit); color: black; padding: 2px 6px; border-radius: 4px; font-size: 10px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="header-stats">
+        <div class="stat-box"><span class="stat-label">HAM GÜÇ</span><span id="pPower" class="stat-val">0 TH/s</span></div>
+        <div class="stat-box"><span class="stat-label">TOPLAM BONUS</span><span id="pBonus" class="stat-val">%0</span></div>
+        <div class="stat-box"><span class="stat-label">NET GÜÇ</span><span id="pFinal" class="stat-val">0 TH/s</span></div>
+    </div>
+
+    <div class="container">
+        <div class="panel">
+            <h3>Envanter Yönetimi <button class="btn-toggle" onclick="toggleInv()">Aç/Kapat</button></h3>
+            <input type="text" id="mName" placeholder="Madenci Adı">
+            <div style="display: flex; gap: 8px;">
+                <input type="number" id="mPower" placeholder="Ham Güç (TH)">
+                <input type="number" id="mBonus" placeholder="Madenci Bonusu (%)">
+            </div>
+            <select id="mType">
+                <option value="1">Tek Hücreli (1 Slot)</option>
+                <option value="2">Çift Hücreli (2 Slot)</option>
+            </select>
+            <button class="btn btn-add" onclick="addInv()">Listeye Ekle</button>
+            <div id="invWrapper">
+                <input type="text" id="invSearch" placeholder="Ara..." oninput="updateUI()">
+                <div id="invList" class="inv-container"></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>Rafa Yerleştir</h3>
+            <div style="display: flex; gap: 8px;">
+                <select id="selRoom" onchange="render()"></select>
+                <select id="selShelf"></select>
+            </div>
+            <select id="selMiner"></select>
+            <button class="btn btn-add" style="background:#5d3fd3; color:white;" onclick="place()">Yerleştir</button>
+        </div>
+        <div id="roomView"></div>
+        <button class="btn" style="background:#333; color:#888; font-size:10px" onclick="resetAll()">Sıfırla</button>
+    </div>
+
+<script>
+    // Verileri v6 deposundan almaya devam ediyoruz (Kayıp olmaması için)
+    let inventory = JSON.parse(localStorage.getItem('m_v6_inv')) || [];
+    let roomSizes = [12, 18, 18, 18];
+    let facility = JSON.parse(localStorage.getItem('m_v6_fac')) || 
+                  roomSizes.map(size => Array.from({length: size}, (_, i) => ({name: `Raf ${i+1}`, bonus: 0, floors: [[],[],[],[]]})));
+
+    function formatPower(thValue) {
+        if (thValue === 0) return "0.000 TH/s";
+        let val = thValue;
+        const units = ["TH/s", "PH/s", "EH/s", "ZH/s"];
+        let unitIdx = 0;
+        while (val >= 1000 && unitIdx < units.length - 1) {
+            val /= 1000;
+            unitIdx++;
+        }
+        return val.toFixed(3) + " " + units[unitIdx];
+    }
+
+    function save() {
+        localStorage.setItem('m_v7_inv', JSON.stringify(inventory));
+        localStorage.setItem('m_v7_fac', JSON.stringify(facility));
+        calculate();
+    }
+
+    function toggleInv() {
+        const w = document.getElementById('invWrapper');
+        w.style.display = (w.style.display === 'none' || w.style.display === '') ? 'block' : 'none';
+    }
+
+    function addInv() {
+        const n = document.getElementById('mName').value.trim();
+        const p = parseFloat(document.getElementById('mPower').value);
+        const b = parseFloat(document.getElementById('mBonus').value) || 0;
+        const t = parseInt(document.getElementById('mType').value);
+        if(!n || isNaN(p)) return alert("Hata: Bilgileri kontrol edin.");
+        inventory.push({ id: Date.now(), name: n, power: p, bonus: b, size: t });
+        save(); updateUI();
+    }
+
+    function updateUI() {
+        const term = document.getElementById('invSearch').value.toLowerCase();
+        const filtered = inventory.filter(m => m.name.toLowerCase().includes(term));
+        const list = document.getElementById('invList');
+        list.innerHTML = filtered.map(m => `
+            <div class="inv-card">
+                <div class="inv-info"><strong>${m.name}</strong><span>${m.power} TH | %${m.bonus}</span></div>
+                <div class="inv-controls"><span class="edit-badge" onclick="editMiner(${m.id})">DÜZENLE</span><span onclick="delInv(${m.id})" style="color:var(--danger);cursor:pointer">×</span></div>
+            </div>
+        `).join('');
+        document.getElementById('selMiner').innerHTML = inventory.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+        const r = document.getElementById('selRoom').value;
+        document.getElementById('selShelf').innerHTML = (facility[r] || []).map((s, i) => `<option value="${i}">${s.name}</option>`).join('');
+    }
+
+    function editMiner(id) {
+        const m = inventory.find(x => x.id === id);
+        const nN = prompt("Yeni İsim:", m.name);
+        const nP = prompt("Yeni Güç (TH):", m.power);
+        const nB = prompt("Yeni Bonus (%):", m.bonus);
+        if(nN !== null) m.name = nN.trim();
+        if(nP !== null) m.power = parseFloat(nP) || 0;
+        if(nB !== null) m.bonus = parseFloat(nB) || 0;
+        facility.forEach(room => room.forEach(shelf => shelf.floors.forEach(floor => {
+            floor.forEach(pm => { if(pm.id === id) { pm.name = m.name; pm.power = m.power; pm.bonus = m.bonus; }});
+        })));
+        save(); updateUI(); render();
+    }
+
+    function delInv(id) { if(confirm("Sil?")) { inventory = inventory.filter(x => x.id !== id); save(); updateUI(); } }
+
+    function place() {
+        const r = document.getElementById('selRoom').value;
+        const s = document.getElementById('selShelf').value;
+        const mId = document.getElementById('selMiner').value;
+        const m = inventory.find(x => x.id == mId);
+        if(!m) return;
+        let placed = false;
+        for(let f=0; f<4; f++) {
+            let u = facility[r][s].floors[f].reduce((a, b) => a + b.size, 0);
+            if(u + m.size <= 2) { facility[r][s].floors[f].push({...m, instId: Date.now()}); placed = true; break; }
+        }
+        if(!placed) alert("Raf dolu!");
+        save(); render();
+    }
+
+    // --- BENZERSİZ BONUSLU HESAPLAMA ---
+    function calculate() {
+        let totalRawPower = 0;
+        let finalFacilityPower = 0;
+        let uniqueBonusSum = 0; // Toplam Benzersiz Bonus Yüzdesi
+        
+        let foundMinersNames = new Set(); // Hangi madencinin bonusu alındı takibi
+
+        // Önce tüm tesisatımızdaki madencileri tara ve benzersiz olanların bonusunu topla
+        facility.forEach(room => {
+            room.forEach(shelf => {
+                shelf.floors.forEach(floor => {
+                    floor.forEach(miner => {
+                        totalRawPower += miner.power;
+                        
+                        // İsim daha önce görülmediyse bonusunu ekle
+                        if (!foundMinersNames.has(miner.name.toLowerCase())) {
+                            uniqueBonusSum += miner.bonus;
+                            foundMinersNames.add(miner.name.toLowerCase());
+                        }
+                    });
+                });
+            });
+        });
+
+        // Şimdi rafları tekrar tara ve Raf Bonusu ile NET gücü hesapla
+        facility.forEach(room => {
+            room.forEach(shelf => {
+                let shelfRawPower = 0;
+                
+                shelf.floors.forEach(floor => {
+                    floor.forEach(miner => {
+                        shelfRawPower += miner.power;
+                    });
+                });
+
+                // Rafın gücü = (Rafın Ham Gücü) * (1 + Toplam Madenci Bonusu + Raf Bonusu)
+                // RollerCoin Mantığı: Tüm madenci bonusları toplanır + Raf bonusu eklenir, toplam ham güce vurulur.
+                let shelfTotal = shelfRawPower * (1 + (uniqueBonusSum / 100) + (shelf.bonus / 100));
+                finalFacilityPower += shelfTotal;
+            });
+        });
+
+        document.getElementById('pPower').innerText = formatPower(totalRawPower);
+        document.getElementById('pBonus').innerText = "%" + uniqueBonusSum.toFixed(2);
+        document.getElementById('pFinal').innerText = formatPower(finalFacilityPower);
+    }
+
+    function render() {
+        const r = document.getElementById('selRoom').value;
+        const v = document.getElementById('roomView');
+        v.innerHTML = `<h3>Oda ${parseInt(r)+1}</h3>`;
+        facility[r].forEach((shelf, sIdx) => {
+            let h = `<div class="shelf"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+                <span style="color:#fbbf24">${shelf.name} (%${shelf.bonus} Raf Bonusu)</span><span class="edit-badge" onclick="editShelf(${r},${sIdx})">DÜZENLE</span></div>`;
+            shelf.floors.forEach((floor, fIdx) => {
+                h += `<div class="floor">`;
+                let sz = 0;
+                floor.forEach(m => {
+                    sz += m.size;
+                    h += `<div class="slot ${m.size==2?'double':''}"><span>${m.name}</span><button class="btn-remove" onclick="removeM(${r},${sIdx},${fIdx},${m.instId})">×</button></div>`;
+                });
+                for(let i=0; i<(2-sz); i++) h += `<div class="slot" style="background:transparent;border:1px dashed #333"></div>`;
+                h += `</div>`;
+            });
+            v.innerHTML += h + `</div>`;
+        });
+    }
+
+    function editShelf(r, s) {
+        const n = prompt("Raf Adı:", facility[r][s].name);
+        const b = prompt("Raf Bonusu (%):", facility[r][s].bonus);
+        if(n !== null) facility[r][s].name = n;
+        if(b !== null) facility[r][s].bonus = parseFloat(b) || 0;
+        save(); render(); updateUI();
+    }
+
+    function removeM(r, s, f, id) { facility[r][s].floors[f] = facility[r][s].floors[f].filter(x => x.instId !== id); save(); render(); }
+    function resetAll() { if(confirm("Tüm veriler silinecek!")) { localStorage.clear(); location.reload(); } }
+
+    document.getElementById('selRoom').innerHTML = roomSizes.map((_,i) => `<option value="${i}">Oda ${i+1}</option>`).join('');
+    updateUI(); render(); calculate();
+</script>
+</body>
+</html>
